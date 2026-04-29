@@ -812,6 +812,8 @@ function enterApp() {
   $('masterPwConfirm').value = '';
   renderEntries();
   setTimeout(() => $('searchInput').focus(), 100);
+  // Start auto-lock inactivity timer
+  if (typeof resetInactivityTimer === 'function') resetInactivityTimer();
 }
 
 function lockApp() {
@@ -823,8 +825,71 @@ function lockApp() {
   $('app').classList.remove('show');
   $('loginOverlay').style.display = 'flex';
   setupLoginUI();
+  // Close any open modals
+  ['entryModal', 'confirmModal', 'changeMasterModal', 'pasteImportModal', 'exportTextModal'].forEach(id => {
+    const el = $(id);
+    if (el) el.style.display = 'none';
+  });
+  if (inactivityTimer) clearTimeout(inactivityTimer);
   setTimeout(() => $('masterPw').focus(), 100);
 }
+
+// =========================================================
+// Auto-lock security features
+// =========================================================
+let inactivityTimer = null;
+const INACTIVITY_TIMEOUT = 5 * 60 * 1000; // 5 minutes
+
+function resetInactivityTimer() {
+  if (inactivityTimer) clearTimeout(inactivityTimer);
+  if (state.password) {
+    inactivityTimer = setTimeout(() => {
+      lockApp();
+      showToast('5分間操作がなかったため自動ロックしました', 'success');
+    }, INACTIVITY_TIMEOUT);
+  }
+}
+
+// User activity events to reset inactivity timer
+['mousedown', 'keydown', 'touchstart', 'scroll', 'click'].forEach(evt => {
+  document.addEventListener(evt, resetInactivityTimer, { passive: true });
+});
+
+// Lock immediately when page goes to background (app switch, home screen, etc.)
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && state.password) {
+    lockApp();
+  }
+});
+
+// Lock when window loses focus (e.g., switching tabs)
+window.addEventListener('blur', () => {
+  if (state.password) {
+    lockApp();
+  }
+});
+
+// Force re-login when page is restored from BFCache (back/forward cache)
+// This is critical for iOS Safari which aggressively caches pages
+window.addEventListener('pageshow', (event) => {
+  if (event.persisted) {
+    // Page was restored from BFCache - force lock
+    if (state.password) {
+      lockApp();
+    } else {
+      // Reload the page to ensure fresh state
+      location.reload();
+    }
+  }
+});
+
+// Lock before page unload
+window.addEventListener('pagehide', () => {
+  if (state.password) {
+    state.password = null;
+    state.entries = [];
+  }
+});
 
 // =========================================================
 // Persistence (localStorage)
